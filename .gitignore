@@ -1,0 +1,24 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# Runtime artifacts produced by the patterns
+memory_store.json
+audit_log.jsonl
+hitl_workspace/
+results/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

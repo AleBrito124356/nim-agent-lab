@@ -1,0 +1,68 @@
+{
+  "format": 1,
+  "pattern": "code-interpreter",
+  "source": "hand-authored",
+  "note": "Attempt 1 really fails: it never collapses repeated hyphens, so an assert raises in the subprocess and the traceback is fed back. Attempt 2 fixes it and really passes. Both scripts are executed for real; only the model replies are replayed.",
+  "goal": "Write a function slugify(text) that lowercases, converts spaces and underscores to hyphens, strips all other non-alphanumeric characters, and collapses repeated hyphens.",
+  "interactions": [
+    {
+      "expect": "You are a careful Python programmer",
+      "response": {
+        "content": [
+          "```python",
+          "import re",
+          "",
+          "",
+          "def slugify(text):",
+          "    text = text.lower()",
+          "    text = text.replace(\" \", \"-\").replace(\"_\", \"-\")",
+          "    text = re.sub(r\"[^a-z0-9-]\", \"\", text)",
+          "    return text",
+          "",
+          "",
+          "assert slugify(\"Hello World\") == \"hello-world\"",
+          "assert slugify(\"snake_case_name\") == \"snake-case-name\"",
+          "assert slugify(\"Already-a-slug\") == \"already-a-slug\"",
+          "assert slugify(\"C'est la vie!\") == \"cest-la-vie\"",
+          "assert slugify(\"Hello,   World\") == \"hello-world\"",
+          "assert slugify(\"  padded  \") == \"padded\"",
+          "assert slugify(\"a -- b\") == \"a-b\"",
+          "assert slugify(\"\") == \"\"",
+          "print(\"ALL TESTS PASSED\")",
+          "```"
+        ]
+      }
+    },
+    {
+      "expect": "You are a careful Python programmer",
+      "response": {
+        "content": [
+          "The failure is on 'Hello,   World': replacing each space separately leaves a run of hyphens. Collapsing whitespace first and squeezing repeated hyphens fixes it.",
+          "",
+          "```python",
+          "import re",
+          "",
+          "",
+          "def slugify(text):",
+          "    text = text.lower()",
+          "    text = re.sub(r\"[\\s_]+\", \"-\", text)      # spaces/underscores -> hyphen",
+          "    text = re.sub(r\"[^a-z0-9-]\", \"\", text)   # drop everything else",
+          "    text = re.sub(r\"-{2,}\", \"-\", text)       # collapse repeated hyphens",
+          "    return text.strip(\"-\")",
+          "",
+          "",
+          "assert slugify(\"Hello World\") == \"hello-world\"",
+          "assert slugify(\"snake_case_name\") == \"snake-case-name\"",
+          "assert slugify(\"Already-a-slug\") == \"already-a-slug\"",
+          "assert slugify(\"C'est la vie!\") == \"cest-la-vie\"",
+          "assert slugify(\"Hello,   World\") == \"hello-world\"",
+          "assert slugify(\"  padded  \") == \"padded\"",
+          "assert slugify(\"a -- b\") == \"a-b\"",
+          "assert slugify(\"\") == \"\"",
+          "print(\"ALL TESTS PASSED\")",
+          "```"
+        ]
+      }
+    }
+  ]
+}

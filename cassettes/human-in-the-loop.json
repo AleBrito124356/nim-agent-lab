@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "pattern": "human-in-the-loop",
+  "source": "hand-authored",
+  "note": "Four proposals: three valid actions and one for a tool that does not exist (post_to_slack), which is discarded and audit-logged. Without a terminal every valid action is auto-skipped and logged; on a terminal you approve, edit or reject each one.",
+  "goal": "Create a note called 'q3-priorities' listing three realistic Q3 priorities for a two-person SaaS team, compute 40 * 52 * 0.2 as the yearly maintenance hours estimate, and email the note to the team.",
+  "interactions": [
+    {
+      "expect": "You are an assistant that PROPOSES actions",
+      "response": {
+        "content": "{\"actions\": [{\"tool\": \"write_note\", \"args\": {\"name\": \"q3-priorities\", \"content\": \"Q3 priorities for a two-person SaaS team:\\n1. Reduce churn: ship the onboarding checklist and in-app usage nudges.\\n2. Reliability: add alerting and a weekly on-call rotation between the two founders.\\n3. Revenue: launch annual billing with a two-months-free discount.\"}, \"reason\": \"The goal asks for a note named q3-priorities with three priorities.\"}, {\"tool\": \"calculator\", \"args\": {\"expression\": \"40 * 52 * 0.2\"}, \"reason\": \"Yearly maintenance hours: 40 h/week x 52 weeks x 20%.\"}, {\"tool\": \"post_to_slack\", \"args\": {\"channel\": \"#team\", \"text\": \"Q3 priorities are ready.\"}, \"reason\": \"Let the team know in chat as well.\"}, {\"tool\": \"send_email\", \"args\": {\"to\": \"team@example.com\", \"subject\": \"Q3 priorities\", \"body\": \"Hi team, the Q3 priorities are in the note q3-priorities. Please review them before Monday.\"}, \"reason\": \"The goal asks to email the note to the team.\"}]}"
+      }
+    }
+  ]
+}

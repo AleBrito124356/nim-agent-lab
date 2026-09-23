@@ -1,0 +1,73 @@
+{
+  "format": 1,
+  "pattern": "reflection",
+  "source": "hand-authored",
+  "note": "Score climbs 6 -> 8 -> 9 across two revision rounds. The critiques deliberately use three shapes the parser must accept: plain JSON, a '8/10' string score, and a ```json fenced block.",
+  "goal": "Write a 150-word README introduction for an open-source library that retries failed HTTP requests with exponential backoff and jitter.",
+  "interactions": [
+    {
+      "expect": "You are a senior technical writer",
+      "response": {
+        "content": [
+          "# retryx",
+          "",
+          "retryx is a revolutionary, blazing-fast library that makes failed HTTP requests a thing of the past. Wrap any call and retryx retries it with exponential backoff and jitter, so your services achieve a 99.9% success rate even when the network misbehaves.",
+          "",
+          "Transient failures are a fact of life: load balancers drop connections, upstream APIs return 503s, and rate limits kick in at the worst possible moment. Naive retry loops make things worse by hammering a struggling server in lockstep. retryx spaces attempts out exponentially and adds random jitter so clients spread their retries instead of stampeding.",
+          "",
+          "It works with every HTTP client, needs zero configuration, and is trusted by thousands of developers worldwide. Get started in seconds and never think about flaky requests again."
+        ]
+      }
+    },
+    {
+      "expect": "You are a demanding but fair editor",
+      "response": {
+        "content": "{\"score\": 6, \"strengths\": [\"Explains why naive retries hurt a struggling server\", \"Covers backoff and jitter as requested\"], \"issues\": [\"Hype words ('revolutionary', 'blazing-fast', 'a thing of the past') break the tone criterion.\", \"'99.9% success rate' and 'trusted by thousands of developers' are invented claims.\", \"'Works with every HTTP client' and 'zero configuration' are unverifiable capability claims.\", \"The reader never learns what using the library looks like.\"], \"suggestions\": [\"Open with one plain sentence stating what the library does.\", \"Delete the success-rate and popularity claims.\", \"Replace the closing paragraph with the default retry policy and how to change it.\"]}"
+      }
+    },
+    {
+      "expect": "revising your draft",
+      "response": {
+        "content": [
+          "# retryx",
+          "",
+          "retryx retries failed HTTP requests with exponential backoff and jitter. Wrap a request function, and retryx re-runs it on connection errors and retryable status codes (429, 502, 503, 504) until it succeeds or the attempt limit is reached.",
+          "",
+          "Transient failures are normal in distributed systems: load balancers drop connections, upstream APIs return 503s, and rate limits kick in under load. A naive retry loop makes this worse by hammering a struggling server in lockstep. retryx doubles the wait after each attempt and adds random jitter, so many clients spread their retries out instead of arriving together.",
+          "",
+          "The default policy is 5 attempts with a 0.5 s base delay and a 30 s cap. Every value is configurable per call, and a hook lets you log or meter each retry."
+        ]
+      }
+    },
+    {
+      "expect": "You are a demanding but fair editor",
+      "response": {
+        "content": "{\"score\": \"8/10\", \"strengths\": [\"Plain, accurate opening\", \"Concrete description of backoff and jitter\"], \"issues\": [\"Listing specific status codes and default values commits the README to details that belong in the reference docs.\", \"Paragraph two runs long for a 150-word introduction.\"], \"suggestions\": [\"Tighten paragraph two to two sentences.\", \"Name the configurable settings instead of their values, and point to the configuration guide.\"]}"
+      }
+    },
+    {
+      "expect": "revising your draft",
+      "response": {
+        "content": [
+          "# retryx",
+          "",
+          "retryx retries failed HTTP requests with exponential backoff and jitter. Wrap a request function, and retryx re-runs it on connection errors and retryable status codes until it succeeds or the attempt limit is reached.",
+          "",
+          "Transient failures are normal in distributed systems: dropped connections, 503s from a busy upstream, rate limits under load. Naive retry loops make them worse by hitting a struggling server in lockstep; retryx doubles the wait after each attempt and adds random jitter so clients spread out instead of arriving together.",
+          "",
+          "Sensible defaults work out of the box, and every setting -- attempt limit, base delay, maximum delay, which errors count as retryable -- can be changed per call. A hook runs before each retry so you can log or meter it. See the configuration guide for the full list of options."
+        ]
+      }
+    },
+    {
+      "expect": "You are a demanding but fair editor",
+      "response": {
+        "content": [
+          "```json",
+          "{\"score\": 9, \"strengths\": [\"Clear one-pass read\", \"No invented claims\", \"Covers behaviour, motivation and configuration\"], \"issues\": [\"Could mention the supported Python versions.\"], \"suggestions\": []}",
+          "```"
+        ]
+      }
+    }
+  ]
+}

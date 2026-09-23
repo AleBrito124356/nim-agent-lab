@@ -1,0 +1,21 @@
+{
+  "format": 1,
+  "pattern": "structured-output",
+  "source": "hand-authored",
+  "note": "The first extraction drifts from the schema in two realistic ways (a lowercase currency and 'price' instead of 'unit_price'), so Pydantic returns four errors. One repair round fixes them, then both arithmetic cross-checks pass.",
+  "goal": "INVOICE  no INV-2093 -- issued 2026-06-14\nFrom: Cordillera Cloud Services, Panama City\nBill to: Acme Logistics S.A.\n\n  * Managed Kubernetes (June)  ......  1 x 890.00\n  * Object storage, 4 TB  ...........  4 x 23.50\n  * Support retainer  ...............  1 x 350.00\n\nsubtotal 1334.00 / ITBMS 7% 93.38 / TOTAL USD 1427.38\nPayment due within 30 days.\n",
+  "interactions": [
+    {
+      "expect": "Extract the invoice data from the document",
+      "response": {
+        "content": "{\"vendor\": \"Cordillera Cloud Services\", \"customer\": \"Acme Logistics S.A.\", \"invoice_number\": \"INV-2093\", \"issue_date\": \"2026-06-14\", \"currency\": \"usd\", \"line_items\": [{\"description\": \"Managed Kubernetes (June)\", \"quantity\": 1, \"price\": 890.0}, {\"description\": \"Object storage, 4 TB\", \"quantity\": 4, \"price\": 23.5}, {\"description\": \"Support retainer\", \"quantity\": 1, \"price\": 350.0}], \"subtotal\": 1334.0, \"tax\": 93.38, \"total\": 1427.38}"
+      }
+    },
+    {
+      "expect": "Extract the invoice data from the document",
+      "response": {
+        "content": "{\"vendor\": \"Cordillera Cloud Services\", \"customer\": \"Acme Logistics S.A.\", \"invoice_number\": \"INV-2093\", \"issue_date\": \"2026-06-14\", \"currency\": \"USD\", \"line_items\": [{\"description\": \"Managed Kubernetes (June)\", \"quantity\": 1, \"unit_price\": 890.0}, {\"description\": \"Object storage, 4 TB\", \"quantity\": 4, \"unit_price\": 23.5}, {\"description\": \"Support retainer\", \"quantity\": 1, \"unit_price\": 350.0}], \"subtotal\": 1334.0, \"tax\": 93.38, \"total\": 1427.38}"
+      }
+    }
+  ]
+}

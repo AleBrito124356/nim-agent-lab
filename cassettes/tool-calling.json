@@ -1,0 +1,65 @@
+{
+  "format": 1,
+  "pattern": "tool-calling",
+  "source": "hand-authored",
+  "note": "Round 1 requests three tool calls in parallel, round 2 one calculator call, round 3 answers. The clock is live, so the final answer quotes the real get_current_time result through the {{tool:call_time.iso}} template.",
+  "goal": "Convert 250 USD to EUR and to JPY, then compute the total of the two converted amounts times 1.07, and tell me the current time in UTC-5.",
+  "interactions": [
+    {
+      "expect": "You are a precise assistant",
+      "response": {
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_eur",
+            "name": "get_exchange_rate",
+            "arguments": {
+              "base": "USD",
+              "quote": "EUR"
+            }
+          },
+          {
+            "id": "call_jpy",
+            "name": "get_exchange_rate",
+            "arguments": {
+              "base": "USD",
+              "quote": "JPY"
+            }
+          },
+          {
+            "id": "call_time",
+            "name": "get_current_time",
+            "arguments": {
+              "utc_offset_hours": -5
+            }
+          }
+        ]
+      }
+    },
+    {
+      "expect": "You are a precise assistant",
+      "response": {
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_total",
+            "name": "calculator",
+            "arguments": {
+              "expression": "(250 * 0.92 + 250 * 155.7) * 1.07"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "expect": "You are a precise assistant",
+      "response": {
+        "content": [
+          "250 USD converts to 230.00 EUR (rate 0.92) and 38,925 JPY (rate 155.7).",
+          "Summing the two amounts as plain numbers and multiplying by 1.07, as requested: (230 + 38,925) x 1.07 = 41,895.85.",
+          "The current time at UTC-5 is {{tool:call_time.iso}}."
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+# Test configuration only -- the project itself is plain scripts run with
+# `python main.py`, installed with `pip install -r requirements.txt`.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

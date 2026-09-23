@@ -11,6 +11,10 @@ This separation matters in practice: a single-prompt agent commits to its
 first plan even when step 2 proves it wrong. The replanner is what makes the
 pattern robust to surprises.
 
+The replanner is also a failure point: if its reply has no usable steps list
+(prose, or JSON under an unexpected key) the remaining plan is KEPT. Treating
+"unparseable" as "nothing left to do" would silently skip the rest of the work.
+
 Run standalone:
     python -m src.patterns.planner_executor "Plan a 3-day developer conference budget for 120 people at 85 USD per head per day"
 """
@@ -18,7 +22,7 @@ Run standalone:
 from __future__ import annotations
 
 import ast
-import json
+import math
 import operator
 import re
 import sys
@@ -26,7 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.nim import chat, get_client  # noqa: E402
+from src.nim import chat, extract_json, get_client  # noqa: E402
 
 DESCRIPTION = "Planner decomposes the goal, executor runs each step, replanner revises after every result."
 DEFAULT_GOAL = (
@@ -36,6 +40,7 @@ DEFAULT_GOAL = (
 )
 
 MAX_STEPS = 8
+MAX_CALCS_PER_STEP = 3
 
 # --- minimal safe calculator the executor can call --------------------------
 
@@ -49,29 +54,50 @@ _BIN_OPS = {
     ast.Pow: operator.pow,
 }
 _UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+MAX_EXPRESSION_CHARS = 500
+MAX_RESULT_BITS = 3322  # ~1000 decimal digits: far below Python's int->str limit
+
+
+def _checked(value):
+    """Reject results a tool must never hand back: complex, inf/nan, giant ints."""
+    if isinstance(value, complex):
+        raise ValueError("result is not a real number")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("result is too large to represent")
+    if isinstance(value, int) and value.bit_length() > MAX_RESULT_BITS:
+        raise ValueError("result is too large (over ~1000 digits)")
+    return value
 
 
 def _safe_eval(node: ast.AST) -> float:
     if isinstance(node, ast.Expression):
         return _safe_eval(node.body)
-    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
         return node.value
     if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
         left, right = _safe_eval(node.left), _safe_eval(node.right)
-        if isinstance(node.op, ast.Pow) and abs(right) > 100:
-            raise ValueError("exponent too large")
-        return _BIN_OPS[type(node.op)](left, right)
+        if isinstance(node.op, ast.Pow):
+            if abs(right) > 100:
+                raise ValueError("exponent too large (limit: 100)")
+            if isinstance(left, int) and isinstance(right, int) and left.bit_length() * right > MAX_RESULT_BITS:
+                raise ValueError("result is too large (over ~1000 digits)")
+        return _checked(_BIN_OPS[type(node.op)](left, right))
     if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
-        return _UNARY_OPS[type(node.op)](_safe_eval(node.operand))
+        return _checked(_UNARY_OPS[type(node.op)](_safe_eval(node.operand)))
     raise ValueError(f"unsupported syntax: {type(node).__name__}")
 
 
 def calculator(expression: str) -> str:
+    expression = str(expression).strip()
+    if len(expression) > MAX_EXPRESSION_CHARS:
+        return f"Error: expression longer than {MAX_EXPRESSION_CHARS} characters."
     try:
-        result = _safe_eval(ast.parse(expression.strip(), mode="eval"))
+        result = _safe_eval(ast.parse(expression, mode="eval"))
     except ZeroDivisionError:
         return "Error: division by zero."
-    except (ValueError, SyntaxError) as exc:
+    except OverflowError:
+        return "Error: result is too large to represent."
+    except (ValueError, SyntaxError, TypeError, RecursionError, MemoryError) as exc:
         return f"Error: {exc}"
     if isinstance(result, float) and result.is_integer():
         result = int(result)
@@ -80,25 +106,36 @@ def calculator(expression: str) -> str:
 
 # --- JSON plan parsing ------------------------------------------------------
 
+# Keys a model may use for the step list, and for the text inside a dict step.
+_STEP_LIST_KEYS = ("steps", "remaining_steps", "plan")
+_STEP_TEXT_KEYS = ("description", "instruction", "task", "action", "step", "text", "title")
 
-def _extract_json(text: str) -> dict | None:
-    """Pull the first JSON object out of a model reply (handles ``` fences)."""
-    text = re.sub(r"```(?:json)?", "", text).strip()
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    if not match:
+
+def _step_text(item) -> str:
+    """Render one plan item as an instruction: strings pass through, dict
+    steps like {"step": 1, "action": "add"} become "add"."""
+    if isinstance(item, str):
+        return item.strip()
+    if isinstance(item, dict):
+        for key in _STEP_TEXT_KEYS:
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return " ".join(str(v).strip() for v in item.values() if isinstance(v, str) and v.strip())
+    return ""  # numbers, nulls and nested lists carry no instruction
+
+
+def _parse_steps(reply: str) -> list[str] | None:
+    """Return the step list, [] for an explicitly empty plan, or None when the
+    reply contains no usable steps list at all."""
+    data = extract_json(reply)
+    if data is None:
         return None
-    try:
-        return json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-
-
-def _parse_steps(reply: str) -> list[str]:
-    data = _extract_json(reply)
-    if isinstance(data, dict) and isinstance(data.get("steps"), list):
-        steps = [str(s).strip() for s in data["steps"] if str(s).strip()]
-        return steps[:MAX_STEPS]
-    return []
+    for key in _STEP_LIST_KEYS:
+        if isinstance(data.get(key), list):
+            steps = [text for text in (_step_text(s) for s in data[key]) if text]
+            return steps[:MAX_STEPS]
+    return None
 
 
 # --- roles ------------------------------------------------------------------
@@ -132,9 +169,11 @@ Respond with ONLY this JSON, no prose:
 If nothing remains, respond {"steps": []}.
 """
 
+_CALC_RE = re.compile(r"^\s*CALC:\s*(.+?)\s*$", re.MULTILINE)
+
 
 def _execute_step(client, goal: str, step: str, completed: list[tuple[str, str]]) -> str:
-    """Run one step; grant the executor up to 3 calculator calls."""
+    """Run one step; grant the executor up to MAX_CALCS_PER_STEP calculator calls."""
     history = "\n".join(f"- {s}\n  result: {r}" for s, r in completed) or "(none yet)"
     messages = [
         {"role": "system", "content": EXECUTOR_PROMPT},
@@ -146,9 +185,9 @@ def _execute_step(client, goal: str, step: str, completed: list[tuple[str, str]]
             ),
         },
     ]
-    for _ in range(3):
+    for _ in range(MAX_CALCS_PER_STEP):
         reply = chat(client, messages, temperature=0.0)
-        calc_match = re.match(r"^\s*CALC:\s*(.+)$", reply, re.MULTILINE)
+        calc_match = _CALC_RE.search(reply)  # models often add a sentence first
         if not calc_match:
             return reply.strip()
         expr = calc_match.group(1).strip()
@@ -156,6 +195,13 @@ def _execute_step(client, goal: str, step: str, completed: list[tuple[str, str]]
         print(f"    [calc] {expr} = {result}")
         messages.append({"role": "assistant", "content": reply})
         messages.append({"role": "user", "content": f"Calculator result: {result}"})
+    messages.append(
+        {
+            "role": "user",
+            "content": "Calculator budget for this step is used up. Reply now with the "
+            "step's outcome in prose, using the results above. No more CALC lines.",
+        }
+    )
     return chat(client, messages, temperature=0.0).strip()
 
 
@@ -173,6 +219,7 @@ def run(goal: str) -> str:
     )
     plan = _parse_steps(plan_reply)
     if not plan:
+        print("[plan] planner reply had no usable steps; answering the goal in one step.")
         plan = [f"Answer the goal directly: {goal}"]
     print("[plan]")
     for i, step in enumerate(plan, 1):
@@ -208,11 +255,18 @@ def run(goal: str) -> str:
             temperature=0.0,
         )
         revised = _parse_steps(replan_reply)
-        if revised != plan and _extract_json(replan_reply) is not None:
+        if revised is None:
+            print("[replan] reply had no steps list; keeping the remaining plan.")
+        elif revised != plan:
             print("[replan] remaining steps revised:")
             for i, step_text in enumerate(revised, 1):
                 print(f"  {i}. {step_text}")
+            if not revised:
+                print("  (none -- the replanner judged the goal complete)")
             plan = revised
+
+    if plan:
+        print(f"[planner-executor] step budget ({MAX_STEPS}) reached; {len(plan)} step(s) left undone.")
 
     summary_input = "\n".join(f"- {s}\n  result: {r}" for s, r in completed)
     final = chat(

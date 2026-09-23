@@ -1,0 +1,97 @@
+{
+  "format": 1,
+  "pattern": "orchestrator",
+  "source": "hand-authored",
+  "note": "The supervisor delegates to three workers: the real ReAct loop (two tool steps), a plain direct call, and the reflection loop with one critique round (score 7 -> 9). All nested worker calls share this one cassette and one trace, in call order.",
+  "goal": "Prepare a short internal briefing: convert our delivery van's 18 mpg fuel economy figure of 120 miles per day into kilometers, estimate monthly distance for 22 working days, and write a 3-bullet summary of why the ops team should track kilometers going forward.",
+  "interactions": [
+    {
+      "expect": "You are a supervisor coordinating specialist workers",
+      "response": {
+        "content": "{\"subtasks\": [{\"worker\": \"react\", \"task\": \"Convert 120 miles to kilometers, then multiply the result by 22 working days to get the monthly distance in kilometers.\"}, {\"worker\": \"direct\", \"task\": \"Express a fuel economy of 18 miles per US gallon in kilometers per liter, showing the conversion factor.\"}, {\"worker\": \"reflection\", \"task\": \"Write exactly 3 bullet points for an operations team explaining why they should track delivery-van distances in kilometers instead of miles.\"}]}"
+      }
+    },
+    {
+      "expect": "You are a ReAct agent",
+      "response": {
+        "content": [
+          "Thought: First convert 120 miles to kilometers.",
+          "Action: convert_units(120, mi, km)"
+        ]
+      }
+    },
+    {
+      "expect": "You are a ReAct agent",
+      "response": {
+        "content": [
+          "Thought: 120 miles is 193.121 km. Now multiply by 22 working days.",
+          "Action: calculator(193.121 * 22)"
+        ]
+      }
+    },
+    {
+      "expect": "You are a ReAct agent",
+      "response": {
+        "content": [
+          "Thought: I have both numbers.",
+          "Final Answer: 120 miles is 193.121 km per day; over 22 working days that is about 4,248.66 km per month."
+        ]
+      }
+    },
+    {
+      "expect": "Answer the task directly and concisely.",
+      "response": {
+        "content": "1 mile per US gallon = 0.425144 km per liter, so 18 mpg x 0.425144 = about 7.65 km/L."
+      }
+    },
+    {
+      "expect": "You are a senior technical writer",
+      "response": {
+        "content": [
+          "- Kilometers match the units our fuel cards, maps and local regulations already use, so reports need no conversion.",
+          "- Metric distances make cost-per-km comparisons across vans and routes straightforward.",
+          "- Switching now avoids converting historical data twice later."
+        ]
+      }
+    },
+    {
+      "expect": "You are a demanding but fair editor",
+      "response": {
+        "content": "{\"score\": 7, \"strengths\": [\"Exactly three bullets, as requested\", \"Each bullet gives a concrete reason\"], \"issues\": [\"'Avoids converting historical data twice' is vague -- twice relative to what?\", \"No bullet tells the ops team what to change.\"], \"suggestions\": [\"Replace bullet 3 with the concrete change: log odometer readings in km and fuel in liters from the next reporting cycle.\", \"Mention km-per-liter alongside cost-per-km in bullet 2.\"]}"
+      }
+    },
+    {
+      "expect": "revising your draft",
+      "response": {
+        "content": [
+          "- Kilometers match the units our fuel cards, maps and local regulations already use, so reports need no conversion.",
+          "- Metric distances make cost-per-km and km-per-liter comparisons across vans and routes straightforward.",
+          "- From the next reporting cycle, log odometer readings in km and fuel in liters, so every report uses one unit."
+        ]
+      }
+    },
+    {
+      "expect": "You are a demanding but fair editor",
+      "response": {
+        "content": "{\"score\": 9, \"strengths\": [\"Concrete and actionable\"], \"issues\": [], \"suggestions\": []}"
+      }
+    },
+    {
+      "expect": "You are the supervisor. Merge",
+      "response": {
+        "content": [
+          "Briefing: tracking van distances in kilometers",
+          "",
+          "- Daily distance: 120 miles = 193.121 km.",
+          "- Monthly distance (22 working days): about 4,248.66 km.",
+          "- Fuel economy: 18 mpg (US) = about 7.65 km per liter.",
+          "",
+          "Why the ops team should track kilometers going forward:",
+          "- Kilometers match the units our fuel cards, maps and local regulations already use, so reports need no conversion.",
+          "- Metric distances make cost-per-km and km-per-liter comparisons across vans and routes straightforward.",
+          "- From the next reporting cycle, log odometer readings in km and fuel in liters, so every report uses one unit."
+        ]
+      }
+    }
+  ]
+}

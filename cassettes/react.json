@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "pattern": "react",
+  "source": "hand-authored",
+  "note": "Three real tool steps (quoted convert_units args exercise the per-argument quote stripping), then a Final Answer. Observations are computed live by the local tools.",
+  "goal": "Convert 42 kilometers to miles, square the result, then tell me the current weather in Panama City.",
+  "interactions": [
+    {
+      "expect": "You are a ReAct agent",
+      "response": {
+        "content": [
+          "Thought: I need to convert 42 km to miles first.",
+          "Action: convert_units(42, \"km\", \"mi\")"
+        ]
+      }
+    },
+    {
+      "expect": "You are a ReAct agent",
+      "response": {
+        "content": [
+          "Thought: 42 km is 26.0976 miles. Now I square that value.",
+          "Action: calculator(26.0976 ** 2)"
+        ]
+      }
+    },
+    {
+      "expect": "You are a ReAct agent",
+      "response": {
+        "content": [
+          "Thought: The square is about 681.08. Next I need the weather in Panama City.",
+          "Action: get_weather(\"Panama City\")"
+        ]
+      }
+    },
+    {
+      "expect": "You are a ReAct agent",
+      "response": {
+        "content": [
+          "Thought: I have every value the task asked for.",
+          "Final Answer: 42 km is 26.0976 miles, and 26.0976 squared is about 681.08. Current weather in Panama City: 18 C, sunny, humidity 85% (demo data)."
+        ]
+      }
+    }
+  ]
+}

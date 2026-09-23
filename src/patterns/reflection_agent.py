@@ -14,14 +14,13 @@ Run standalone:
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.nim import chat, get_client  # noqa: E402
+from src.nim import chat, extract_json, get_client  # noqa: E402
 
 DESCRIPTION = "Generate, self-critique against a rubric, revise; keeps the best-scoring draft."
 DEFAULT_GOAL = (
@@ -31,6 +30,7 @@ DEFAULT_GOAL = (
 
 DEFAULT_ROUNDS = 2
 TARGET_SCORE = 9
+NEUTRAL_SCORE = 5
 
 RUBRIC = """\
 Score 1-10 overall, judging these dimensions:
@@ -61,23 +61,47 @@ REVISER_PROMPT = (
 )
 
 
+def _as_list(value) -> list[str]:
+    """Critics return lists, single strings or nothing; normalize to list[str]."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v).strip() for v in value if str(v).strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
+def _parse_score(value) -> int | None:
+    """Accept 8, 8.5, "8", "8/10" or "Score: 8"; None if there is no number."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        number = float(value)
+    else:
+        match = re.search(r"-?\d+(?:\.\d+)?", str(value))
+        if not match:
+            return None
+        number = float(match.group(0))
+    return max(1, min(10, round(number)))
+
+
 def _parse_critique(reply: str) -> dict:
     """Parse the critic's JSON; degrade gracefully to a neutral critique."""
-    cleaned = re.sub(r"```(?:json)?", "", reply).strip()
-    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-    if match:
-        try:
-            data = json.loads(match.group(0))
-            score = int(data.get("score", 5))
-            return {
-                "score": max(1, min(10, score)),
-                "strengths": [str(s) for s in data.get("strengths", [])],
-                "issues": [str(s) for s in data.get("issues", [])],
-                "suggestions": [str(s) for s in data.get("suggestions", [])],
-            }
-        except (json.JSONDecodeError, TypeError, ValueError):
-            pass
-    return {"score": 5, "strengths": [], "issues": ["critique unparseable"], "suggestions": []}
+    data = extract_json(reply)
+    if data is None:
+        return {"score": NEUTRAL_SCORE, "strengths": [], "issues": ["critique unparseable"],
+                "suggestions": []}
+    score = _parse_score(data.get("score"))
+    issues = _as_list(data.get("issues"))
+    if score is None:
+        score = NEUTRAL_SCORE
+        issues.append("critique had no usable score")
+    return {
+        "score": score,
+        "strengths": _as_list(data.get("strengths")),
+        "issues": issues,
+        "suggestions": _as_list(data.get("suggestions")),
+    }
 
 
 def _critique(client, goal: str, draft: str) -> dict:
@@ -105,7 +129,7 @@ def run(goal: str, rounds: int = DEFAULT_ROUNDS) -> str:
         temperature=0.7,
     )
     critique = _critique(client, goal, draft)
-    best_draft, best_score = draft, critique["score"]
+    best_draft, best_score, best_round = draft, critique["score"], 0
     print(f"[draft 0] score {best_score}/10")
 
     for round_no in range(1, rounds + 1):
@@ -135,9 +159,10 @@ def run(goal: str, rounds: int = DEFAULT_ROUNDS) -> str:
         print(f"[round {round_no}] revised score {critique['score']}/10")
 
         if critique["score"] > best_score:
-            best_draft, best_score = draft, critique["score"]
+            best_draft, best_score, best_round = draft, critique["score"], round_no
 
-    print("-" * 72 + f"\n[reflection] best score: {best_score}/10")
+    label = "the first draft" if best_round == 0 else f"round {best_round}"
+    print("-" * 72 + f"\n[reflection] best score: {best_score}/10 ({label})")
     return best_draft
 
 

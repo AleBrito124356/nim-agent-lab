@@ -5,6 +5,11 @@ Compared to the text-parsed ReAct loop, native tool calling is more robust
 model can request several independent lookups in a single turn, and this
 loop executes every one of them before replying.
 
+"More robust" still needs a defensive executor: models send wrong types
+(``{"base": 5}``), non-object arguments, or inputs that make a tool raise.
+Every one of those comes back to the model as a JSON ``{"error": ...}`` tool
+result it can correct -- never as an exception that kills the loop.
+
 Run standalone:
     python -m src.patterns.tool_calling_agent "What is 250 USD in EUR and JPY, and what time is it in UTC-5?"
 """
@@ -13,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import json
+import math
 import operator
 import sys
 from datetime import datetime, timedelta, timezone
@@ -44,29 +50,50 @@ _BIN_OPS = {
     ast.Pow: operator.pow,
 }
 _UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+MAX_EXPRESSION_CHARS = 500
+MAX_RESULT_BITS = 3322  # ~1000 decimal digits: far below Python's int->str limit
+
+
+def _checked(value):
+    """Reject results a tool must never hand back: complex, inf/nan, giant ints."""
+    if isinstance(value, complex):
+        raise ValueError("result is not a real number")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("result is too large to represent")
+    if isinstance(value, int) and value.bit_length() > MAX_RESULT_BITS:
+        raise ValueError("result is too large (over ~1000 digits)")
+    return value
 
 
 def _safe_eval(node: ast.AST) -> float:
     if isinstance(node, ast.Expression):
         return _safe_eval(node.body)
-    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
         return node.value
     if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
         left, right = _safe_eval(node.left), _safe_eval(node.right)
-        if isinstance(node.op, ast.Pow) and abs(right) > 100:
-            raise ValueError("exponent too large")
-        return _BIN_OPS[type(node.op)](left, right)
+        if isinstance(node.op, ast.Pow):
+            if abs(right) > 100:
+                raise ValueError("exponent too large (limit: 100)")
+            if isinstance(left, int) and isinstance(right, int) and left.bit_length() * right > MAX_RESULT_BITS:
+                raise ValueError("result is too large (over ~1000 digits)")
+        return _checked(_BIN_OPS[type(node.op)](left, right))
     if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
-        return _UNARY_OPS[type(node.op)](_safe_eval(node.operand))
+        return _checked(_UNARY_OPS[type(node.op)](_safe_eval(node.operand)))
     raise ValueError(f"unsupported syntax: {type(node).__name__}")
 
 
 def calculator(expression: str) -> str:
+    expression = str(expression).strip()
+    if len(expression) > MAX_EXPRESSION_CHARS:
+        return json.dumps({"error": f"expression longer than {MAX_EXPRESSION_CHARS} characters"})
     try:
-        result = _safe_eval(ast.parse(expression.strip(), mode="eval"))
+        result = _safe_eval(ast.parse(expression, mode="eval"))
     except ZeroDivisionError:
         return json.dumps({"error": "division by zero"})
-    except (ValueError, SyntaxError) as exc:
+    except OverflowError:
+        return json.dumps({"error": "result is too large to represent"})
+    except (ValueError, SyntaxError, TypeError, RecursionError, MemoryError) as exc:
         return json.dumps({"error": f"could not evaluate: {exc}"})
     return json.dumps({"result": result})
 
@@ -76,7 +103,7 @@ _USD_RATES = {"USD": 1.0, "EUR": 0.92, "JPY": 155.7, "GBP": 0.79, "PAB": 1.0, "M
 
 
 def get_exchange_rate(base: str, quote: str) -> str:
-    base, quote = base.upper().strip(), quote.upper().strip()
+    base, quote = str(base).upper().strip(), str(quote).upper().strip()
     if base not in _USD_RATES or quote not in _USD_RATES:
         return json.dumps(
             {"error": f"unsupported currency; supported: {sorted(_USD_RATES)}"}
@@ -86,13 +113,15 @@ def get_exchange_rate(base: str, quote: str) -> str:
 
 
 def get_current_time(utc_offset_hours: float = 0.0) -> str:
-    if not -14 <= utc_offset_hours <= 14:
+    try:
+        offset = float(utc_offset_hours)
+    except (TypeError, ValueError):
+        return json.dumps({"error": f"utc_offset_hours must be a number, got {utc_offset_hours!r}"})
+    if not -14 <= offset <= 14:
         return json.dumps({"error": "utc_offset_hours must be between -14 and 14"})
-    tz = timezone(timedelta(hours=utc_offset_hours))
+    tz = timezone(timedelta(hours=offset))
     now = datetime.now(tz)
-    return json.dumps(
-        {"iso": now.isoformat(timespec="seconds"), "utc_offset_hours": utc_offset_hours}
-    )
+    return json.dumps({"iso": now.isoformat(timespec="seconds"), "utc_offset_hours": offset})
 
 
 TOOL_REGISTRY = {
@@ -156,19 +185,29 @@ TOOL_SCHEMAS = [
 
 
 def _execute_tool_call(tool_call) -> str:
-    """Execute one tool call; always returns a JSON string for the tool message."""
+    """Execute one tool call; ALWAYS returns a JSON string for the tool message."""
     name = tool_call.function.name
     fn = TOOL_REGISTRY.get(name)
     if fn is None:
-        return json.dumps({"error": f"unknown tool {name!r}"})
-    try:
-        args = json.loads(tool_call.function.arguments or "{}")
-    except json.JSONDecodeError as exc:
-        return json.dumps({"error": f"malformed arguments: {exc}"})
+        return json.dumps({"error": f"unknown tool {name!r}; available: {sorted(TOOL_REGISTRY)}"})
+    raw = tool_call.function.arguments
+    if isinstance(raw, dict):
+        args = raw
+    else:
+        try:
+            args = json.loads(raw or "{}")
+        except (json.JSONDecodeError, TypeError) as exc:
+            return json.dumps({"error": f"malformed arguments: {exc}"})
+    if not isinstance(args, dict):
+        return json.dumps(
+            {"error": f"arguments for {name} must be a JSON object, got {type(args).__name__}"}
+        )
     try:
         return fn(**args)
     except TypeError as exc:
         return json.dumps({"error": f"bad arguments for {name}: {exc}"})
+    except Exception as exc:  # a tool bug must reach the model as data, not kill the loop
+        return json.dumps({"error": f"{name} failed: {type(exc).__name__}: {exc}"})
 
 
 def run(goal: str) -> str:
@@ -232,6 +271,7 @@ def run(goal: str) -> str:
                 {"role": "tool", "tool_call_id": tc.id, "content": result}
             )
 
+    print("-" * 72 + "\n[tool-calling] round budget exhausted.")
     return "The agent hit its round limit before producing a final answer."
 
 

@@ -1,0 +1,33 @@
+{
+  "format": 1,
+  "pattern": "guardrails",
+  "source": "hand-authored",
+  "note": "Heuristic screen passes (no call), moderation ALLOWs, the first answer ignores the JSON schema and gets one repair round, and the PII scrub redacts the email and phone number the answer contains. Injection attempts (--goal \"Ignore all previous instructions...\") are blocked before any call, so they need no cassette.",
+  "goal": "What are three good practices for storing user passwords in a web app?",
+  "interactions": [
+    {
+      "expect": "You are a content policy gate",
+      "response": {
+        "content": "{\"verdict\": \"ALLOW\", \"reason\": \"defensive security best-practice question\"}"
+      }
+    },
+    {
+      "expect": "You are a helpful, accurate assistant. Respond with ONLY this JSON",
+      "response": {
+        "content": [
+          "Here are three good practices:",
+          "",
+          "1. Hash passwords with a slow, salted algorithm such as Argon2id.",
+          "2. Never log or email passwords.",
+          "3. Rate-limit login attempts."
+        ]
+      }
+    },
+    {
+      "expect": "You are a helpful, accurate assistant. Respond with ONLY this JSON",
+      "response": {
+        "content": "{\"answer\": \"1. Hash every password with a slow, salted algorithm designed for passwords -- Argon2id, or bcrypt with a cost factor of at least 12. Never store plaintext or fast hashes such as SHA-256.\\n2. Never log, email or display passwords, and require TLS on every endpoint that receives them.\\n3. Rate-limit and monitor login attempts, and offer multi-factor authentication for accounts with elevated access.\\nIf you suspect a credential leak, contact the security team at security@acme-example.com or +1 (555) 010-4477.\", \"confidence\": \"high\"}"
+      }
+    }
+  ]
+}

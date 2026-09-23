@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "pattern": "router",
+  "source": "hand-authored",
+  "note": "The classifier wraps its JSON in prose (the robust extractor handles it) and routes to the analyst persona, which runs at temperature 0.3.",
+  "goal": "Our API error rate went from 0.2% to 1.1% after Tuesday's deploy. What should we look at first?",
+  "interactions": [
+    {
+      "expect": "Classify the user request",
+      "response": {
+        "content": [
+          "Route decision:",
+          "{\"route\": \"analyst\", \"reason\": \"Diagnosing an error-rate regression is a triage question, not a coding or writing task.\"}"
+        ]
+      }
+    },
+    {
+      "expect": "You are a pragmatic technical analyst",
+      "response": {
+        "content": [
+          "Likely causes, ranked by probability:",
+          "",
+          "1. A regression in Tuesday's deploy itself (most likely, given the timing).",
+          "   Confirm: compare the error rate per endpoint and per release version; if the increase is concentrated on endpoints the deploy touched, this is it.",
+          "   Fix: roll back or feature-flag off the change, then bisect the diff.",
+          "",
+          "2. A new or changed dependency call (database query, third-party API, timeout setting).",
+          "   Confirm: break errors down by status code and exception type; a jump in 502/504s or timeouts points here. Check p95/p99 latency of downstream calls since Tuesday.",
+          "   Fix: restore the previous timeout/retry settings, or add the index a new slow query needs.",
+          "",
+          "3. Configuration or infrastructure drift shipped with the deploy (env vars, instance size, connection-pool limits).",
+          "   Confirm: diff the runtime configuration before and after; search logs for pool exhaustion or OOM kills.",
+          "   Fix: revert the configuration change.",
+          "",
+          "4. A traffic change that coincided with the deploy (a new client version, a bot, a batch job).",
+          "   Confirm: segment errors by client, user agent and API key.",
+          "   Fix: rate-limit or fix the offending client.",
+          "",
+          "Look first at the per-endpoint error breakdown split by release version: it separates cause 1 from causes 2-4 within minutes. Uncertainty: from the aggregate rate alone, a coincidental traffic change cannot be ruled out yet."
+        ]
+      }
+    }
+  ]
+}

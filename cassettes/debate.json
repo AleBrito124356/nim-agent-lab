@@ -1,0 +1,53 @@
+{
+  "format": 1,
+  "pattern": "debate",
+  "source": "hand-authored",
+  "note": "Opening statements, rebuttals and a verdict: the five calls the pattern always makes.",
+  "goal": "Should a small SaaS team migrate its monolith to microservices when it reaches 50k monthly active users?",
+  "interactions": [
+    {
+      "expect": "You are the PRO advocate",
+      "response": {
+        "content": "Yes -- at 50k MAU a small SaaS team should start the migration, deliberately and incrementally. Growth at that level exposes the monolith's coupling: one slow reporting query degrades checkout, and a bad deploy of an admin feature takes down the whole product. Carving out the two or three components with genuinely different load or release cadence -- billing, notifications, search -- lets each scale and deploy independently. It also shrinks the blast radius of failures and lets new hires own a bounded codebase. Waiting until 500k MAU means doing the same surgery under far more pressure, with more data to migrate and more customers affected by every mistake. The strangler-fig approach keeps the risk low: route one capability at a time to a new service behind the existing API, measure, and stop if it does not pay off."
+      }
+    },
+    {
+      "expect": "You are the CON advocate",
+      "response": {
+        "content": "No -- 50k MAU is not a reason to migrate; it is a load most well-built monoliths handle on a few servers. Microservices trade in-process calls for network calls, which adds latency, partial failures, distributed tracing, service discovery, contract versioning and data-consistency problems. A small team pays that operational tax on every feature while gaining little: independent scaling rarely matters when one database is the real bottleneck. Most 'monolith pain' at this stage is missing module boundaries, slow CI and weak test coverage -- all fixable inside the monolith. Splitting a tangled codebase produces a distributed monolith, where every change touches several services and needs coordinated deploys. The team's scarcest resource is engineering attention, and a migration spends it on infrastructure instead of the product users pay for."
+      }
+    },
+    {
+      "expect": "You are the PRO advocate",
+      "response": {
+        "content": "The CON side assumes the choice is a big-bang rewrite or nothing. It is not. Extracting one component with a clear boundary -- say, notification delivery with its own queue -- adds one deployable, not a platform team. The operational tax is real but bounded, and managed queues, hosted tracing and container platforms have made it far smaller than it used to be. The distributed-monolith risk comes from splitting along technical layers; splitting along business capabilities that own their data avoids it. And 'fix the modules first' is not an alternative to extraction -- it is step one of it. Once a module has a clean interface, deploying it separately is cheap and buys isolation the monolith cannot give."
+      }
+    },
+    {
+      "expect": "You are the CON advocate",
+      "response": {
+        "content": "'Extract one component' is a much smaller claim than 'migrate to microservices', and I largely agree with it -- which concedes that user count is not the trigger. The PRO case leans on managed tooling making distributed systems cheap; it makes them cheaper to run, not simpler to reason about. Every extracted service needs its own on-call runbook, dashboards and backward-compatible API evolution, and a five-person team feels each one. Isolation is also available inside a monolith: separate worker pools, bulkheads, feature flags and per-module deploy checks keep one feature from taking down another. The honest trigger for extraction is a specific, measured pain -- conflicting scaling needs, a different release cadence, or team contention -- not a round MAU number."
+      }
+    },
+    {
+      "expect": "You are an impartial judge",
+      "response": {
+        "content": [
+          "**Most defensible position:** not at 50k MAU by default. Extract specific components only when a measured problem -- conflicting scaling needs, a different release cadence, or teams blocking each other -- shows that separation pays for its operational cost.",
+          "",
+          "**Strongest points for migrating:**",
+          "- Components with different load profiles or release cadences (billing, notifications) gain independent deploys and a smaller failure blast radius.",
+          "- Incremental extraction (strangler fig, one capability at a time) keeps the risk bounded and reversible.",
+          "- The same surgery gets harder the longer it is postponed.",
+          "",
+          "**Strongest points against:**",
+          "- 50k MAU is well within what a well-structured monolith serves; user count alone is not a trigger.",
+          "- Every service adds a lasting operational tax (on-call, observability, API versioning) that a small team feels directly.",
+          "- Most early pain comes from weak module boundaries, slow CI and missing tests, which are fixable inside the monolith.",
+          "",
+          "**Recommendation:** spend the next quarter enforcing module boundaries inside the monolith and instrumenting the pain points; extract a component only when its metrics show it needs independent scaling or deploys, starting with the one that has the cleanest boundary."
+        ]
+      }
+    }
+  ]
+}

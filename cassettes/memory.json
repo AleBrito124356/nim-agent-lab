@@ -1,0 +1,45 @@
+{
+  "format": 1,
+  "pattern": "memory",
+  "source": "hand-authored",
+  "note": "Turn 1 stores three facts (one with the multi-word keyword 'property management'). The two scripted follow-ups retrieve them by keyword overlap. The last extractor reply uses a bare string instead of an object, which the tolerant parser accepts. Run it twice: the second run loads the facts and the extractor's repeats are de-duplicated.",
+  "goal": "Hi! I'm Alejandro, a full-stack developer in Panama City. I'm building a property-management app with FastAPI and I prefer Postgres over MySQL.",
+  "interactions": [
+    {
+      "expect": "You are a helpful personal assistant with memory",
+      "response": {
+        "content": "Nice to meet you, Alejandro! FastAPI with Postgres is a solid fit for property management: owners, units, leases and payments map cleanly onto relational tables, and FastAPI keeps the API layer lean. Which part are you tackling first?"
+      }
+    },
+    {
+      "expect": "Extract durable facts about the user",
+      "response": {
+        "content": "{\"facts\": [{\"fact\": \"User's name is Alejandro, a full-stack developer based in Panama City.\", \"keywords\": [\"alejandro\", \"panama city\", \"full-stack developer\"]}, {\"fact\": \"User is building a property-management app with FastAPI.\", \"keywords\": [\"property management\", \"fastapi\", \"app\"]}, {\"fact\": \"User prefers Postgres over MySQL.\", \"keywords\": [\"postgres\", \"mysql\", \"database\"]}]}"
+      }
+    },
+    {
+      "expect": "You are a helpful personal assistant with memory",
+      "response": {
+        "content": "Stay with Postgres, which you already prefer. Give the ledger its own append-only table with NUMERIC(12,2) amounts, and a unique constraint on (lease_id, period) so the same rent payment can never be recorded twice."
+      }
+    },
+    {
+      "expect": "Extract durable facts about the user",
+      "response": {
+        "content": "{\"facts\": []}"
+      }
+    },
+    {
+      "expect": "You are a helpful personal assistant with memory",
+      "response": {
+        "content": "For a property-management API on one small VPS: run Uvicorn behind Nginx with two workers, use async SQLAlchemy with a small Postgres connection pool, and schedule rent reminders with a plain cron job or APScheduler instead of adding Celery and a broker."
+      }
+    },
+    {
+      "expect": "Extract durable facts about the user",
+      "response": {
+        "content": "{\"facts\": [\"User will deploy the property-management app on a single small VPS.\"]}"
+      }
+    }
+  ]
+}

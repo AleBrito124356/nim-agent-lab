@@ -1,0 +1,104 @@
+{
+  "format": 1,
+  "pattern": "planner-executor",
+  "source": "hand-authored",
+  "note": "Five-step plan. Step 2's executor also computes the materials cost, so the second replan drops the now-redundant step 3 -- the replanner doing its job. Every number comes from the local calculator via CALC lines.",
+  "goal": "Estimate the total cost of a 3-day workshop for 25 people: venue is 400 USD per day, catering is 18 USD per person per day, and each attendee gets a 35 USD materials kit. Then summarize the budget in three lines.",
+  "interactions": [
+    {
+      "expect": "You are a planner",
+      "response": {
+        "content": "{\"steps\": [\"Compute the venue cost: 400 USD per day for 3 days.\", \"Compute the catering cost: 18 USD per person per day for 25 people over 3 days.\", \"Compute the materials cost: one 35 USD kit for each of the 25 attendees.\", \"Add venue, catering and materials to get the total cost.\", \"Summarize the budget in three lines.\"]}"
+      }
+    },
+    {
+      "expect": "You are an executor",
+      "response": {
+        "content": "CALC: 400 * 3"
+      }
+    },
+    {
+      "expect": "You are an executor",
+      "response": {
+        "content": "Venue: 400 USD/day x 3 days = 1,200 USD."
+      }
+    },
+    {
+      "expect": "You are a replanner",
+      "response": {
+        "content": "{\"steps\": [\"Compute the catering cost: 18 USD per person per day for 25 people over 3 days.\", \"Compute the materials cost: one 35 USD kit for each of the 25 attendees.\", \"Add venue, catering and materials to get the total cost.\", \"Summarize the budget in three lines.\"]}"
+      }
+    },
+    {
+      "expect": "You are an executor",
+      "response": {
+        "content": "CALC: 18 * 25 * 3"
+      }
+    },
+    {
+      "expect": "You are an executor",
+      "response": {
+        "content": [
+          "Catering is 1,350 USD. The materials kits share the same headcount, so I will compute them now too.",
+          "CALC: 35 * 25"
+        ]
+      }
+    },
+    {
+      "expect": "You are an executor",
+      "response": {
+        "content": "Catering: 18 USD x 25 people x 3 days = 1,350 USD. Materials: 35 USD x 25 kits = 875 USD (computed here as well, since it uses the same headcount)."
+      }
+    },
+    {
+      "expect": "You are a replanner",
+      "response": {
+        "content": "{\"steps\": [\"Add venue, catering and materials to get the total cost.\", \"Summarize the budget in three lines.\"]}"
+      }
+    },
+    {
+      "expect": "You are an executor",
+      "response": {
+        "content": "CALC: 1200 + 1350 + 875"
+      }
+    },
+    {
+      "expect": "You are an executor",
+      "response": {
+        "content": "Total: 1,200 + 1,350 + 875 = 3,425 USD."
+      }
+    },
+    {
+      "expect": "You are a replanner",
+      "response": {
+        "content": "{\"steps\": [\"Summarize the budget in three lines.\"]}"
+      }
+    },
+    {
+      "expect": "You are an executor",
+      "response": {
+        "content": [
+          "Venue: 1,200 USD for three days at 400 USD/day.",
+          "Catering and materials: 1,350 + 875 = 2,225 USD for 25 attendees.",
+          "Total: 3,425 USD, which is 137 USD per attendee."
+        ]
+      }
+    },
+    {
+      "expect": "Merge the step results",
+      "response": {
+        "content": [
+          "The 3-day workshop for 25 people costs 3,425 USD in total:",
+          "- Venue: 400 USD/day x 3 days = 1,200 USD",
+          "- Catering: 18 USD x 25 people x 3 days = 1,350 USD",
+          "- Materials: 35 USD x 25 kits = 875 USD",
+          "",
+          "Budget summary:",
+          "Venue 1,200 USD for three days.",
+          "Catering and materials 2,225 USD for 25 attendees.",
+          "Total 3,425 USD, or 137 USD per attendee."
+        ]
+      }
+    }
+  ]
+}

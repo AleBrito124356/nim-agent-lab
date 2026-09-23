@@ -13,14 +13,13 @@ Run standalone:
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.nim import chat, get_client  # noqa: E402
+from src.nim import chat, extract_json, get_client  # noqa: E402
 
 DESCRIPTION = "Classifies each request and routes it to a coder, writer or analyst persona."
 DEFAULT_GOAL = (
@@ -67,7 +66,7 @@ Respond with ONLY this JSON: {{"route": "<route>", "reason": "<one short sentenc
 
 
 def classify(client, goal: str) -> tuple[str, str]:
-    """Return (route, reason); falls back to 'analyst' on any parse failure."""
+    """Return (route, reason); never fails -- see parse_route for the fallbacks."""
     reply = chat(
         client,
         [
@@ -77,16 +76,20 @@ def classify(client, goal: str) -> tuple[str, str]:
         temperature=0.0,
         max_tokens=120,
     )
-    cleaned = re.sub(r"```(?:json)?", "", reply).strip()
-    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-    if match:
-        try:
-            data = json.loads(match.group(0))
-            route = str(data.get("route", "")).lower().strip()
-            if route in SPECIALISTS:
-                return route, str(data.get("reason", ""))
-        except json.JSONDecodeError:
-            pass
+    return parse_route(reply)
+
+
+def parse_route(reply: str) -> tuple[str, str]:
+    """JSON first; then a bare route name (small models often answer just
+    "coder"); then the analyst fallback -- a router must always route."""
+    data = extract_json(reply)
+    if data is not None:
+        route = str(data.get("route", "")).lower().strip()
+        if route in SPECIALISTS:
+            return route, str(data.get("reason", ""))
+    mentioned = [r for r in SPECIALISTS if re.search(rf"\b{r}\b", reply, re.IGNORECASE)]
+    if len(mentioned) == 1:
+        return mentioned[0], "route name found in a non-JSON classifier reply"
     return "analyst", "fallback: classifier output was unparseable"
 
 

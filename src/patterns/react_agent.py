@@ -9,6 +9,13 @@ All three tools are implemented locally in this file so the pattern is fully
 self-contained: a safe calculator (AST walk, no eval), a unit converter, and
 a deterministic mock weather lookup.
 
+Text parsing is where ReAct agents break in practice, so the parser here is
+deliberately forgiving about what models really emit: quoted or keyword
+arguments (``convert_units(42, "km", "mi")``), nested parentheses, trailing
+prose after the call, the LangChain-style ``Action Input:`` line, and
+self-written ``Observation:`` lines (which are discarded -- only the runtime
+may supply observations).
+
 Run standalone:
     python -m src.patterns.react_agent "How many miles is 42 km, and what is that value squared?"
 """
@@ -16,6 +23,7 @@ Run standalone:
 from __future__ import annotations
 
 import ast
+import math
 import operator
 import re
 import sys
@@ -48,32 +56,59 @@ _BIN_OPS = {
     ast.Pow: operator.pow,
 }
 _UNARY_OPS = {ast.UAdd: operator.pos, ast.USub: operator.neg}
+MAX_EXPRESSION_CHARS = 500
+MAX_RESULT_BITS = 3322  # ~1000 decimal digits: far below Python's int->str limit
+
+
+def _checked(value):
+    """Reject results a tool must never hand back: complex, inf/nan, giant ints."""
+    if isinstance(value, complex):
+        raise ValueError("result is not a real number")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError("result is too large to represent")
+    if isinstance(value, int) and value.bit_length() > MAX_RESULT_BITS:
+        raise ValueError("result is too large (over ~1000 digits)")
+    return value
 
 
 def _eval_node(node: ast.AST) -> float:
     """Recursively evaluate an arithmetic AST. Anything non-arithmetic raises."""
     if isinstance(node, ast.Expression):
         return _eval_node(node.body)
-    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+    if isinstance(node, ast.Constant) and type(node.value) in (int, float):
         return node.value
     if isinstance(node, ast.BinOp) and type(node.op) in _BIN_OPS:
         left = _eval_node(node.left)
         right = _eval_node(node.right)
-        if isinstance(node.op, ast.Pow) and abs(right) > 100:
-            raise ValueError("exponent too large (limit: 100)")
-        return _BIN_OPS[type(node.op)](left, right)
+        if isinstance(node.op, ast.Pow):
+            if abs(right) > 100:
+                raise ValueError("exponent too large (limit: 100)")
+            # Refuse before computing: (9**99)**99 would build a 9,000-digit int.
+            if isinstance(left, int) and isinstance(right, int) and left.bit_length() * right > MAX_RESULT_BITS:
+                raise ValueError("result is too large (over ~1000 digits)")
+        return _checked(_BIN_OPS[type(node.op)](left, right))
     if isinstance(node, ast.UnaryOp) and type(node.op) in _UNARY_OPS:
-        return _UNARY_OPS[type(node.op)](_eval_node(node.operand))
+        return _checked(_UNARY_OPS[type(node.op)](_eval_node(node.operand)))
     raise ValueError(f"unsupported syntax: {type(node).__name__}")
 
 
 def calculator(expression: str) -> str:
-    """Evaluate an arithmetic expression without eval(): +, -, *, /, //, %, **."""
+    """Evaluate an arithmetic expression without eval(): +, -, *, /, //, %, **.
+
+    Every failure -- bad syntax, division by zero, overflow, absurdly large
+    results -- comes back as an "Error: ..." string the model can read and
+    recover from. A tool must never crash the agent loop.
+    """
+    expression = str(expression).strip()
+    if len(expression) > MAX_EXPRESSION_CHARS:
+        return f"Error: expression longer than {MAX_EXPRESSION_CHARS} characters."
     try:
-        result = _eval_node(ast.parse(expression.strip(), mode="eval"))
+        result = _eval_node(ast.parse(expression, mode="eval"))
     except ZeroDivisionError:
         return "Error: division by zero."
-    except (ValueError, SyntaxError) as exc:
+    except OverflowError:
+        return "Error: result is too large to represent."
+    except (ValueError, SyntaxError, TypeError, RecursionError, MemoryError) as exc:
         return f"Error: could not evaluate {expression!r} ({exc})."
     if isinstance(result, float) and result.is_integer():
         result = int(result)
@@ -96,10 +131,12 @@ _LINEAR_UNITS = {
 def convert_units(value_str: str, from_unit: str, to_unit: str) -> str:
     """Convert between km/m/mi/ft, kg/lb, l/gal, and c/f temperatures."""
     try:
-        value = float(value_str.strip())
+        value = float(str(value_str).strip())
     except ValueError:
         return f"Error: {value_str!r} is not a number."
-    src, dst = from_unit.strip().lower(), to_unit.strip().lower()
+    if not math.isfinite(value):
+        return f"Error: {value_str!r} is not a finite number."
+    src, dst = str(from_unit).strip().lower(), str(to_unit).strip().lower()
 
     if {src, dst} <= {"c", "f"}:
         if src == dst:
@@ -130,12 +167,140 @@ def get_weather(city: str) -> str:
     Real deployments swap this for an HTTP call; the point of the demo is the
     loop mechanics, not a weather API key.
     """
-    city = city.strip()
+    city = str(city).strip()
+    if not city:
+        return "Error: get_weather needs a city name, e.g. get_weather(Panama City)."
     seed = zlib.crc32(city.lower().encode("utf-8"))
     temp_c = 18 + seed % 15
     condition = _CONDITIONS[seed % len(_CONDITIONS)]
     humidity = 40 + seed % 55
     return f"{city}: {temp_c} C, {condition}, humidity {humidity}% (demo data)"
+
+
+# --------------------------------------------------------------------------
+# Parsing the model's Action line
+# --------------------------------------------------------------------------
+
+_ACTION_HEAD_RE = re.compile(r"^[ \t]*Action:[ \t]*([A-Za-z_]\w*)[ \t]*(\(?)", re.MULTILINE)
+_ACTION_INPUT_RE = re.compile(r"^[ \t]*Action Input:[ \t]*(.*)$", re.MULTILINE)
+_OBSERVATION_RE = re.compile(r"^[ \t]*Observation:", re.MULTILINE)
+_FINAL_LINE_RE = re.compile(r"^[ \t]*Final Answer:", re.MULTILINE)
+_KWARG_RE = re.compile(r"^[A-Za-z_]\w*\s*=(?!=)\s*")
+_QUOTES = "\"'"
+
+
+def _balanced_args(text: str, start: int) -> str:
+    """Return the text between the '(' that ends at ``start`` and its matching
+    ')' on the same line. Nested parentheses and quoted commas are respected;
+    anything after the closing parenthesis is ignored."""
+    depth, quote = 1, None
+    line_end = text.find("\n", start)
+    line_end = len(text) if line_end == -1 else line_end
+    for i in range(start, line_end):
+        ch = text[i]
+        if quote:
+            if ch == quote:
+                quote = None
+            continue
+        if ch in _QUOTES:
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:i]
+    # Unbalanced (or an apostrophe opened a "quote"): take the rest of the line.
+    rest = text[start:line_end].rstrip()
+    return rest[:-1] if rest.endswith(")") else rest
+
+
+def parse_action(reply: str) -> tuple[str, str] | None:
+    """Extract (tool, raw_args) from the first Action line, or None.
+
+    Accepts ``Action: tool(args)`` and the LangChain-style pair
+    ``Action: tool`` + ``Action Input: args`` that many models were trained on.
+    The match is bounded to one line, so a later "Thought: ... calculator(x)"
+    can never leak into the arguments.
+    """
+    match = _ACTION_HEAD_RE.search(reply)
+    if not match:
+        return None
+    tool = match.group(1)
+    if match.group(2):
+        return tool, _balanced_args(reply, match.end())
+    action_input = _ACTION_INPUT_RE.search(reply, match.end())
+    return tool, action_input.group(1).strip() if action_input else ""
+
+
+def _clean_arg(arg: str) -> str:
+    """Strip whitespace, a keyword prefix (value=42) and matching quotes."""
+    arg = _KWARG_RE.sub("", arg.strip(), count=1).strip()
+    if len(arg) >= 2 and arg[0] == arg[-1] and arg[0] in _QUOTES:
+        arg = arg[1:-1].strip()
+    return arg
+
+
+def split_args(raw_args: str) -> list[str]:
+    """Split on commas outside quotes/brackets, then clean each argument, so
+    convert_units(42, "km", 'mi') and convert_units(value=42, ...) both work."""
+    parts, buf, quote, depth = [], [], None, 0
+    for ch in raw_args:
+        if quote:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            continue
+        if ch in _QUOTES:
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append("".join(buf))
+            buf = []
+            continue
+        buf.append(ch)
+    parts.append("".join(buf))
+    return [_clean_arg(part) for part in parts]
+
+
+def _dispatch(tool: str, raw_args: str) -> str:
+    """Route a parsed Action to the matching local tool."""
+    if tool == "calculator":
+        return calculator(_clean_arg(raw_args))
+    if tool == "convert_units":
+        parts = split_args(raw_args)
+        if len(parts) != 3:
+            return "Error: convert_units expects (value, from_unit, to_unit)."
+        return convert_units(*parts)
+    if tool == "get_weather":
+        return get_weather(_clean_arg(raw_args))
+    return f"Error: unknown tool {tool!r}. Use calculator, convert_units or get_weather."
+
+
+def _truncate_observation(reply: str) -> str:
+    """Drop any Observation the model wrote itself (some models ignore stop=)."""
+    match = _OBSERVATION_RE.search(reply)
+    return reply[: match.start()].rstrip() if match else reply
+
+
+def _final_answer(reply: str, action: tuple[str, str] | None) -> str | None:
+    """Return the Final Answer text, unless an Action comes first.
+
+    A Final Answer written AFTER an Action line was guessed before the tool
+    ran; in that case the tool runs and the model answers from the real
+    observation on its next turn.
+    """
+    match = _FINAL_LINE_RE.search(reply)
+    if match is None and action is None:
+        match = re.search(r"Final Answer:", reply)  # inline, when no Action exists
+    if match is None:
+        return None
+    if action is not None and reply.find("Action:") < match.start():
+        return None
+    return reply[match.end():].strip()
 
 
 # --------------------------------------------------------------------------
@@ -163,23 +328,6 @@ Final Answer: <the complete answer for the user>
 Never write an Observation yourself. The system provides it after each Action.
 """
 
-_ACTION_RE = re.compile(r"Action:\s*([a-zA-Z_]+)\((.*)\)", re.DOTALL)
-
-
-def _dispatch(tool: str, raw_args: str) -> str:
-    """Route a parsed Action to the matching local tool."""
-    raw_args = raw_args.strip().strip('"').strip("'")
-    if tool == "calculator":
-        return calculator(raw_args)
-    if tool == "convert_units":
-        parts = [p.strip() for p in raw_args.split(",")]
-        if len(parts) != 3:
-            return "Error: convert_units expects (value, from_unit, to_unit)."
-        return convert_units(*parts)
-    if tool == "get_weather":
-        return get_weather(raw_args)
-    return f"Error: unknown tool {tool!r}. Use calculator, convert_units or get_weather."
-
 
 def run(goal: str) -> str:
     """Run the ReAct loop until Final Answer or MAX_ITERATIONS."""
@@ -191,25 +339,27 @@ def run(goal: str) -> str:
     print(f"\n[react] goal: {goal}\n" + "-" * 72)
 
     for step in range(1, MAX_ITERATIONS + 1):
-        # stop= prevents the model from hallucinating its own Observation.
-        reply = chat(client, messages, temperature=0.0, stop=["Observation:"])
+        # stop= prevents the model from hallucinating its own Observation;
+        # _truncate_observation covers models that ignore stop sequences.
+        reply = _truncate_observation(
+            chat(client, messages, temperature=0.0, stop=["Observation:"])
+        )
         print(f"\n[step {step}]\n{reply}")
         messages.append({"role": "assistant", "content": reply})
 
-        if "Final Answer:" in reply:
-            answer = reply.split("Final Answer:", 1)[1].strip()
+        action = parse_action(reply)
+        answer = _final_answer(reply, action)
+        if answer is not None:
             print("-" * 72 + f"\n[react] done in {step} step(s).")
             return answer
 
-        match = _ACTION_RE.search(reply)
-        if not match:
+        if action is None:
             observation = (
                 "Error: reply had no valid 'Action: tool(args)' line and no "
                 "'Final Answer:'. Follow the format exactly."
             )
         else:
-            tool, raw_args = match.group(1), match.group(2)
-            observation = _dispatch(tool, raw_args)
+            observation = _dispatch(*action)
         print(f"Observation: {observation}")
         messages.append({"role": "user", "content": f"Observation: {observation}"})
 

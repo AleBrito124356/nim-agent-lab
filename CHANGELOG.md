@@ -10,7 +10,7 @@
 - **`--all --offline`**: runs every pattern and prints a calls/tokens comparison table.
 - `NIM_BASE_URL` to point the lab at a self-hosted NIM container.
 - Orchestrator: a `debate` worker, next to `react`, `reflection` and `direct`.
-- Offline pytest suite (386 tests, network blocked), `requirements-dev.txt`, and a `pyproject.toml` that holds only the pytest configuration.
+- Offline pytest suite (387 tests, network blocked), `requirements-dev.txt`, and a `pyproject.toml` that holds only the pytest configuration.
 
 ### Fixed
 

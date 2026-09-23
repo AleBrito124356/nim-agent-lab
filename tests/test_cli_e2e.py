@@ -108,6 +108,18 @@ def test_cassette_drift_is_reported_with_exit_code_2(tmp_path, monkeypatch, caps
     assert "cassette problem" in capsys.readouterr().err
 
 
+def test_env_var_mock_backend_reports_the_cassette_it_replayed(tmp_path, monkeypatch, capsys):
+    copy = tmp_path / "my-router.json"
+    copy.write_text((ROOT / "cassettes" / "router.json").read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.setenv("NIM_CASSETTE", str(copy))  # NIM_BACKEND=mock comes from the fixture
+    assert main.main(["router"]) == 0
+    status = [line for line in capsys.readouterr().out.splitlines() if line.startswith("[offline] replayed")]
+    assert len(status) == 1
+    assert status[0].startswith("[offline] replayed 2/2 cassette replies from ")
+    assert status[0].endswith("my-router.json")
+    assert nim.find_layer(ReplayClient).source == str(copy)
+
+
 def test_list_and_no_arguments(capsys):
     assert main.main(["--list"]) == 0
     listed = capsys.readouterr().out

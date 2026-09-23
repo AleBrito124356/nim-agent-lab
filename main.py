@@ -93,7 +93,7 @@ def list_patterns() -> None:
     )
 
 
-def _replay_status(pattern: str) -> str | None:
+def _replay_status() -> str | None:
     from src.replay import ReplayClient
 
     replay = nim.find_layer(ReplayClient)
@@ -101,7 +101,7 @@ def _replay_status(pattern: str) -> str | None:
         return None
     used, total = replay.position, replay.total
     note = "" if used == total else " (this run took a shorter path than the cassette)"
-    return f"[offline] replayed {used}/{total} cassette replies from {_rel(cassette_for(pattern))}{note}"
+    return f"[offline] replayed {used}/{total} cassette replies from {_rel(Path(replay.source))}{note}"
 
 
 def _rel(path: Path) -> str:
@@ -149,7 +149,7 @@ def run_pattern(args: argparse.Namespace) -> int:
     if result:
         print(f"\n{'=' * 72}\nRESULT ({args.pattern}):\n{result}")
 
-    status = _replay_status(args.pattern)
+    status = _replay_status()
     if status:
         print(f"\n{status}")
     recorder = nim.find_layer(RecordingClient)

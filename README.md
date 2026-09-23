@@ -10,7 +10,7 @@
 
 Most agent tutorials hide the actual pattern behind a framework: you learn LangChain's abstractions, not why a replanner beats a static plan or why a critique needs a rubric to produce usable edits. This repo inverts that. Each of the 12 patterns is one self-contained Python file with zero framework dependencies — just the OpenAI SDK pointed at NVIDIA's free NIM endpoint. You can read any file top to bottom in ten minutes, run it, break it, and port the mechanics to whatever stack you actually ship with.
 
-The parts frameworks gloss over are here explicitly, and each one has a test: iteration and round budgets, parse-failure fallbacks for what small models really emit, fail-closed moderation, validation-repair loops, tools that return errors instead of crashing the loop, and audit logging. A pytest suite of 386 tests runs fully offline, with network access blocked.
+The parts frameworks gloss over are here explicitly, and each one has a test: iteration and round budgets, parse-failure fallbacks for what small models really emit, fail-closed moderation, validation-repair loops, tools that return errors instead of crashing the loop, and audit logging. A pytest suite of 387 tests runs fully offline, with network access blocked.
 
 ## Try it in ten seconds — no API key
 
@@ -223,7 +223,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-386 tests run in a few seconds with no key. A fixture makes every socket connect and DNS lookup raise, so a test that reached for the real endpoint would fail. The suite covers:
+387 tests run in a few seconds with no key. A fixture makes every socket connect and DNS lookup raise, so a test that reached for the real endpoint would fail. The suite covers:
 
 - the tools and parsers of every pattern, including the budgets and fallbacks;
 - all 12 patterns end to end through `main.py --offline`, asserting their outputs and side effects;
